@@ -428,7 +428,6 @@ function App() {
   const [defects, setDefects] = useState(() => getStore('qah_defects', INIT_DEFECTS));
   const [logs, setLogs] = useState(() => getStore('qah_logs', INIT_LOGS));
   const [loginLogs, setLoginLogs] = useState(() => getStore('qah_login_logs', []));
-  const [pendingMembers, setPendingMembers] = useState(() => getStore('qah_pending_members', []));
   
   const [currentUser, setCurrentUser] = useState(() => getStore('qah_session_user', null));
   const [currentTeam, setCurrentTeam] = useState(() => getStore('qah_session_team', null));
@@ -454,7 +453,6 @@ function App() {
   useEffect(() => { setStore('qah_defects', defects); }, [defects]);
   useEffect(() => { setStore('qah_logs', logs); }, [logs]);
   useEffect(() => { setStore('qah_login_logs', loginLogs); }, [loginLogs]);
-  useEffect(() => { setStore('qah_pending_members', pendingMembers); }, [pendingMembers]);
 
   const showToast = (msg, type='success') => setToast({ msg, type, id: uid() });
 
@@ -494,55 +492,6 @@ function App() {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('qah_theme', theme);
   }, [theme]);
-
-  // Handle invite link: capture ?join=BASE64_PAYLOAD from URL
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const payload = params.get('join');
-    if (payload) {
-      try {
-        const teamInfo = JSON.parse(atob(decodeURIComponent(payload)));
-        localStorage.setItem('qah_join_payload', JSON.stringify(teamInfo));
-      } catch(e) { console.error('Invalid invite link', e); }
-      params.delete('join');
-      history.replaceState(null, '', window.location.pathname + (params.toString() ? '?' + params.toString() : '') + window.location.hash);
-    }
-  }, []);
-
-  // Invite: auto-fill join code and trigger join flow after login
-  const [autoJoinCode, setAutoJoinCode] = useState(() => {
-    try {
-      const p = localStorage.getItem('qah_join_payload');
-      return p ? JSON.parse(p).inviteCode || '' : '';
-    } catch(e) { return ''; }
-  });
-
-  const processInvite = (user) => {
-    if (!user) return;
-    const raw = localStorage.getItem('qah_join_payload');
-    if (!raw) return;
-    let teamInfo;
-    try { teamInfo = JSON.parse(raw); } catch(e) { localStorage.removeItem('qah_join_payload'); return; }
-    localStorage.removeItem('qah_join_payload');
-    setAutoJoinCode('');
-
-    const { id: teamId, name: teamName, inviteCode } = teamInfo;
-    const localTeam = teams.find(t => t.id === teamId);
-    if (localTeam && localTeam.inviteCode !== inviteCode) {
-      showToast('Invite Link หมดอายุหรือถูกรีเซ็ต', 'error'); return;
-    }
-    if (members.some(m => m.teamId===teamId && m.userId===user.id)) {
-      if (localTeam) { setCurrentTeam(localTeam); setPage('dashboard'); }
-      showToast(`คุณเป็นสมาชิกทีม "${teamName}" อยู่แล้ว`, 'info'); return;
-    }
-    // Join immediately — no approval needed
-    const role = 'edit';
-    setMembers(p => [...p, { id: uid(), teamId, userId: user.id, role, joinedAt: now() }]);
-    if (localTeam) { setCurrentTeam(localTeam); setPage('dashboard'); }
-    showToast(`✅ เข้าร่วมทีม "${teamName}" สำเร็จ!`);
-  };
-
-  useEffect(() => { processInvite(currentUser); }, [currentUser]);
   const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark');
 
   const navigate = (pg, ctx2={}) => { setPage(pg); if (ctx2.projectId !== undefined) setNavCtx(p=>({...p,...ctx2})); else if (Object.keys(ctx2).length) setNavCtx(p=>({...p,...ctx2})); };
@@ -555,9 +504,7 @@ function App() {
     myTeams, myRole, isAdmin, canEdit, canDelete, canView,
     teamProjects, teamTasks, teamTCs, teamDefects,
     defectModalCtx, openDefectModal, closeDefectModal,
-    theme, toggleTheme,
-    pendingMembers, setPendingMembers,
-    autoJoinCode, setAutoJoinCode, processInvite };
+    theme, toggleTheme };
 
   // LOGIN
   if (!currentUser) {
@@ -660,14 +607,11 @@ function LoginPage({ users, setUsers, loginLogs, setLoginLogs, setCurrentUser, s
 }
 
 // ─── TEAM SELECT PAGE ─────────────────────────────────────────────────────────
-function TeamSelectPage({ currentUser, teams, setTeams, members, setMembers, myTeams, setCurrentTeam, setPage, showToast, addLog, pendingMembers, setPendingMembers, autoJoinCode, setAutoJoinCode, processInvite }) {
+function TeamSelectPage({ currentUser, teams, setTeams, members, setMembers, myTeams, setCurrentTeam, setPage, showToast, addLog }) {
   const [showCreate, setShowCreate] = useState(false);
   const [teamName, setTeamName] = useState('');
-  const [inviteCode, setInviteCode] = useState(autoJoinCode || '');
-  const [showJoin, setShowJoin] = useState(!!autoJoinCode);
-  useEffect(() => {
-    if (autoJoinCode) { setInviteCode(autoJoinCode); setShowJoin(true); }
-  }, [autoJoinCode]);
+  const [inviteCode, setInviteCode] = useState('');
+  const [showJoin, setShowJoin] = useState(false);
 
   const createTeam = () => {
     if (!teamName.trim()) return;
@@ -680,9 +624,7 @@ function TeamSelectPage({ currentUser, teams, setTeams, members, setMembers, myT
   };
 
   const joinTeam = () => {
-    const code = inviteCode.trim();
-    if (!code) return;
-    const t = teams.find(t => t.inviteCode === code);
+    const t = teams.find(t => t.inviteCode === inviteCode.trim());
     if (!t) { showToast('ไม่พบ Invite Code นี้', 'error'); return; }
     if (members.some(m => m.teamId===t.id && m.userId===currentUser.id)) {
       setCurrentTeam(t); setPage('dashboard'); return;
@@ -690,9 +632,7 @@ function TeamSelectPage({ currentUser, teams, setTeams, members, setMembers, myT
     setMembers(p => [...p, { id: uid(), teamId: t.id, userId: currentUser.id, role: 'edit', joinedAt: now() }]);
     setCurrentTeam(t);
     setPage('dashboard');
-    showToast(`✅ เข้าร่วมทีม "${t.name}" สำเร็จ!`);
-    setAutoJoinCode && setAutoJoinCode('');
-    setShowJoin(false);
+    showToast(`เข้าร่วมทีม "${t.name}" สำเร็จ!`);
   };
 
   const colors = ['#4f8ef7','#34d399','#f472b6','#a78bfa','#fbbf24'];
@@ -765,7 +705,7 @@ function Topbar({ currentUser, currentTeam, setCurrentTeam, setCurrentUser, setP
 }
 
 // ─── SIDEBAR ─────────────────────────────────────────────────────────────────
-function Sidebar({ navigate, currentPage, navCtx, isAdmin, teamTCs, teamDefects, teamProjects, teamTasks, pendingMembers, currentTeam }) {
+function Sidebar({ navigate, currentPage, navCtx, isAdmin, teamTCs, teamDefects, teamProjects, teamTasks }) {
   const nav = (pg) => navigate(pg);
   const failedTCs = teamTCs.filter(tc => tc.status === 'Failed').length;
   const openDefects = teamDefects.filter(d => d.status !== 'Closed').length;
@@ -879,10 +819,7 @@ function Sidebar({ navigate, currentPage, navCtx, isAdmin, teamTCs, teamDefects,
     h('div', { className: 'sidebar-section' },
       h('div', { className: 'sidebar-label' }, 'Management'),
       h('div', { className:`nav-item${currentPage==='projects'?' active':''}`, onClick:()=>nav('projects') }, h('div',{className:'nav-dot',style:{background:'var(--green)'}}), 'All Projects', teamProjects.length>0&&h('span',{className:'nav-count'},teamProjects.length)),
-      h('div', { className:`nav-item${currentPage==='team-settings'?' active':''}`, onClick:()=>nav('team-settings'), style:{display:'flex',alignItems:'center',gap:'8px'} },
-        h('div',{className:'nav-dot',style:{background:'var(--purple)'}}),
-        'Team Settings',
-      ),
+      h('div', { className:`nav-item${currentPage==='team-settings'?' active':''}`, onClick:()=>nav('team-settings') }, h('div',{className:'nav-dot',style:{background:'var(--purple)'}}), 'Team Settings'),
       isAdmin && h('div', { className:`nav-item${currentPage==='activity-log'?' active':''}`, onClick:()=>nav('activity-log') }, h('div',{className:'nav-dot',style:{background:'var(--amber)'}}), 'Activity Log'),
     ),
     failedTCs > 0 && h('div', { style:{padding:'12px', margin:'8px', background:'var(--red-bg)', border:'1px solid var(--red)', borderRadius:'var(--r)', fontSize:'12px', color:'var(--red)'} },
@@ -2151,6 +2088,8 @@ function DefectsPage({ teamDefects, setDefects, testCases, teamTCs, teamTasks, t
 // ─── TEAM SETTINGS PAGE ───────────────────────────────────────────────────────
 function TeamSettingsPage({ currentTeam, currentUser, setTeams, members, setMembers, users, isAdmin, showToast, addLog }) {
   const [tab, setTab] = useState('members');
+  const [showInvite, setShowInvite] = useState(false);
+
   const teamMembers = members.filter(m=>m.teamId===currentTeam.id);
   const roles = ['admin','function','edit','view'];
 
@@ -2158,46 +2097,23 @@ function TeamSettingsPage({ currentTeam, currentUser, setTeams, members, setMemb
     setMembers(p=>p.map(m=>m.id===memberId?{...m,role}:m));
     showToast('อัพเดทสิทธิ์สำเร็จ');
   };
+
   const removeMember = (memberId) => {
     const m = members.find(x=>x.id===memberId);
     if (m?.userId===currentUser.id) { showToast('ไม่สามารถลบตัวเองได้','error'); return; }
     setMembers(p=>p.filter(x=>x.id!==memberId));
     showToast('ลบสมาชิกสำเร็จ');
   };
-  const approvePending = (req, role='edit') => {
-    setMembers(p=>[...p,{id:uid(),teamId:req.teamId,userId:req.userId,role,joinedAt:now()}]);
-    setPendingMembers(p=>p.map(x=>x.id===req.id?{...x,status:'approved'}:x));
-    const u=users.find(u=>u.id===req.userId);
-    addLog('Approve Member',`Approve ${u?.name||req.userId} เข้าทีม`);
-    showToast(`อนุมัติ ${u?.name||'user'} สำเร็จ ✓`);
-  };
-
-  const rejectPending = (req) => {
-    setPendingMembers(p=>p.map(x=>x.id===req.id?{...x,status:'rejected'}:x));
-    const u=users.find(u=>u.id===req.userId);
-    showToast(`ปฏิเสธ ${u?.name||'user'} แล้ว`,'error');
-  };
-
-  const baseUrl = window.location.href.split('?')[0].split('#')[0];
-  const teamPayload = btoa(JSON.stringify({ id: currentTeam.id, name: currentTeam.name, inviteCode: currentTeam.inviteCode }));
-  const inviteLink = baseUrl + '?join=' + encodeURIComponent(teamPayload);
-
-  const tabList = [
-    {key:'members',label:'Members'},
-    {key:'permissions',label:'Permission Guide'},
-    {key:'invite',label:'Invite'},
-  ];
 
   return h('div',null,
     h('div',{className:'page-header'},h('div',null,h('h1',{className:'page-title'},'Team Settings'),h('p',{className:'page-subtitle'},currentTeam.name))),
     h('div',{className:'tabs'},
-      tabList.map(t=>h('div',{key:t.key,className:`tab${tab===t.key?' active':''}`,onClick:()=>setTab(t.key)},t.label))
+      ['members','permissions','invite'].map(t=>h('div',{key:t,className:`tab${tab===t?' active':''}`,onClick:()=>setTab(t)},t==='members'?'Members':t==='permissions'?'Permission Guide':'Invite Link'))
     ),
-
     tab==='members'&&h('div',null,
       h('div',{className:'table-wrap'},
         h('table',null,
-          h('thead',null,h('tr',null,h('th',null,'สมาชิก'),h('th',null,'อีเมล'),h('th',null,'Role'),isAdmin&&h('th',null,''))),
+          h('thead',null,h('tr',null,h('th',null,'สมาชิก'),h('th',null,'อีเมล'),h('th',null,'Role'),isAdmin&&h('th',null,''),)),
           h('tbody',null,teamMembers.map(m=>{
             const u=users.find(u=>u.id===m.userId);
             return h('tr',{key:m.id},
@@ -2214,7 +2130,6 @@ function TeamSettingsPage({ currentTeam, currentUser, setTeams, members, setMemb
         )
       )
     ),
-
     tab==='permissions'&&h('div',{className:'card'},
       h('div',{className:'card-title',style:{marginBottom:'16px'}},'สิทธิ์การใช้งาน'),
       h('div',{className:'table-wrap'},
@@ -2226,26 +2141,14 @@ function TeamSettingsPage({ currentTeam, currentUser, setTeams, members, setMemb
         )
       )
     ),
-
     tab==='invite'&&h('div',{className:'card'},
-      h('div',{className:'card-title',style:{marginBottom:'16px'}},'Invite'),
-
-      h('p',{className:'section-title',style:{marginBottom:'8px'}},'🔗 Invite Link (คลิกเพื่อเข้าร่วมได้ทันที)'),
-      h('p',{style:{color:'var(--text2)',fontSize:'13px',marginBottom:'10px'}},'ส่ง Link นี้ให้สมาชิก กดแล้วสมัคร/Login จากนั้นรอ Admin Approve'),
-      h('div',{className:'url-box',style:{marginBottom:'6px'}},
-        h('span',{className:'url-text',style:{fontSize:'12px',wordBreak:'break-all'}},inviteLink),
-        h('button',{className:'btn-icon',title:'คัดลอก Link',style:{padding:'5px 8px',fontSize:'16px',flexShrink:0},onClick:()=>copyText(inviteLink,showToast)},'⎘')
+      h('div',{className:'card-title',style:{marginBottom:'12px'}},'Invite Link'),
+      h('p',{style:{color:'var(--text2)',fontSize:'13px',marginBottom:'16px'}},'แชร์ Code นี้ให้สมาชิกใหม่เพื่อเข้าร่วมทีม'),
+      h('div',{className:'url-box',style:{marginBottom:'12px'}},
+        h('span',{className:'url-text'},currentTeam.inviteCode),
+        h('button',{className:'btn-icon',title:'คัดลอก Invite Code',style:{padding:'5px 8px',fontSize:'16px',opacity:'0.7'},onClick:()=>copyText(currentTeam.inviteCode,showToast)},'⎘')
       ),
-      h('p',{style:{fontSize:'11px',color:'var(--text3)',marginBottom:'24px'}},'* Link มี Invite Code ฝังอยู่ เปิดแล้วระบบจะส่งคำขอให้ Admin อนุมัติอัตโนมัติ'),
-
-      h('hr',{style:{border:'none',borderTop:'1px solid var(--border)',marginBottom:'20px'}}),
-
-      h('p',{className:'section-title',style:{marginBottom:'8px'}},'🔑 Invite Code (กรอกเองในหน้าเลือกทีม)'),
-      h('p',{style:{color:'var(--text2)',fontSize:'13px',marginBottom:'10px'}},'สำหรับแชร์ Code ให้สมาชิกกรอกเอง'),
-      h('div',{className:'url-box'},
-        h('span',{className:'url-text',style:{fontFamily:'var(--mono)',fontSize:'15px',letterSpacing:'2px'}},currentTeam.inviteCode),
-        h('button',{className:'btn-icon',title:'คัดลอก Code',style:{padding:'5px 8px',fontSize:'16px'},onClick:()=>copyText(currentTeam.inviteCode,showToast)},'⎘')
-      )
+      h('p',{style:{fontSize:'12px',color:'var(--text3)'}},'สมาชิกใหม่สามารถใช้ Code นี้ตอนเลือกทีม')
     )
   );
 }
