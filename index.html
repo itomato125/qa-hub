@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="th">
 <head>
@@ -173,15 +174,14 @@
   .tc-title:hover { text-decoration: underline; }
   
   /* MODAL */
-  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 20px 16px; overflow-y: auto; }
-  .modal { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r2); width: 100%; max-width: 96vw; max-height: 94vh; display: flex; flex-direction: column; box-shadow: var(--shadow); }
-  .modal-sm { max-width: 460px; max-height: unset; }
-  .modal-lg { max-width: 96vw; }
-  .modal-body { overflow-y: auto; flex: 1; }
-  .modal-header { padding: 20px 24px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 16px; }
+  .modal { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r2); width: 96vw; max-width: 96vw; height: 94vh; max-height: 94vh; display: flex; flex-direction: column; box-shadow: var(--shadow); }
+  .modal-sm { width: auto; max-width: 480px; height: auto; max-height: 90vh; }
+  .modal-lg { width: 96vw; max-width: 96vw; height: 94vh; }
+  .modal-header { padding: 16px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
   .modal-title { font-size: 16px; font-weight: 600; }
-  .modal-body { padding: 20px 24px; }
-  .modal-footer { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+  .modal-body { padding: 20px 24px; overflow-y: auto; flex: 1; min-height: 0; }
+  .modal-footer { padding: 14px 24px; border-top: 1px solid var(--border); display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-shrink: 0; }
   .modal-close { background: none; border: none; color: var(--text3); font-size: 18px; cursor: pointer; padding: 4px; border-radius: 4px; }
   .modal-close:hover { color: var(--text); background: var(--bg3); }
   
@@ -429,14 +429,22 @@ function App() {
   const [logs, setLogs] = useState(() => getStore('qah_logs', INIT_LOGS));
   const [loginLogs, setLoginLogs] = useState(() => getStore('qah_login_logs', []));
   
-  const [currentUser, setCurrentUser] = useState(null);
-  const [currentTeam, setCurrentTeam] = useState(null);
-  const [page, setPage] = useState('login');
+  const [currentUser, setCurrentUser] = useState(() => getStore('qah_session_user', null));
+  const [currentTeam, setCurrentTeam] = useState(() => getStore('qah_session_team', null));
+  const [page, setPage] = useState(() => {
+    const u = getStore('qah_session_user', null);
+    const t = getStore('qah_session_team', null);
+    if (u && t) return 'dashboard';
+    if (u) return 'team-select';
+    return 'login';
+  });
   const [navCtx, setNavCtx] = useState({ projectId: null, taskId: null });
   const [toast, setToast] = useState(null);
   
   // Persist
   useEffect(() => { setStore('qah_users', users); }, [users]);
+  useEffect(() => { setStore('qah_session_user', currentUser); }, [currentUser]);
+  useEffect(() => { setStore('qah_session_team', currentTeam); }, [currentTeam]);
   useEffect(() => { setStore('qah_teams', teams); }, [teams]);
   useEffect(() => { setStore('qah_members', members); }, [members]);
   useEffect(() => { setStore('qah_projects', projects); }, [projects]);
@@ -675,7 +683,7 @@ function Topbar({ currentUser, currentTeam, setCurrentTeam, setCurrentUser, setP
   return h('div', { className: 'topbar' },
     h('div', { className: 'topbar-left' },
       h('div', { className: 'logo' }, 'QA', h('span', null, 'Hub')),
-      h('div', { className: 'team-badge', onClick: () => { setCurrentTeam(null); setPage('login'); } }, currentTeam?.name || 'No Team')
+      h('div', { className: 'team-badge', onClick: () => { setCurrentTeam(null); setPage('team-select'); } }, currentTeam?.name || 'No Team')
     ),
     h('div', { className: 'topbar-right' },
       h('button', { className: 'theme-toggle', onClick: toggleTheme, title: theme === 'dark' ? 'Switch to Light' : 'Switch to Dark' },
@@ -688,7 +696,7 @@ function Topbar({ currentUser, currentTeam, setCurrentTeam, setCurrentUser, setP
           h('div', { style:{padding:'8px 0'} },
             h('div', { style:{padding:'8px 14px', fontSize:'11px', color:'var(--text3)', borderBottom:'1px solid var(--border)'} }, currentUser?.email),
             h('div', { style:{padding:'8px 14px', cursor:'pointer', fontSize:'13px'}, onClick:()=>{ setCurrentTeam(null); setShowMenu(false); } }, 'เปลี่ยนทีม'),
-            h('div', { style:{padding:'8px 14px', cursor:'pointer', fontSize:'13px', color:'var(--red)'}, onClick:()=>{ setCurrentUser(null); setCurrentTeam(null); setPage('login'); } }, 'ออกจากระบบ')
+            h('div', { style:{padding:'8px 14px', cursor:'pointer', fontSize:'13px', color:'var(--red)'}, onClick:()=>{ setCurrentUser(null); setCurrentTeam(null); setPage('login'); setStore('qah_session_user',null); setStore('qah_session_team',null); } }, 'ออกจากระบบ')
           )
         )
       )
@@ -1690,8 +1698,8 @@ function TCModal({ tc, task, project, testCases, setTestCases, defects, setDefec
       h('div',{className:'tabs',style:{padding:'0 24px',margin:'0'}},
         [['info','ข้อมูลหลัก'],['steps','Test Steps'],['files','Files'],['defects','Defects'],['history','History']].map(([t,l])=>h('div',{key:t,className:`tab${activeTab===t?' active':''}`,onClick:()=>setActiveTab(t)},l))
       ),
-      h('div',{className:'modal-body',style:{maxHeight:'60vh',overflowY:'auto'}},
-        activeTab==='info'&&h('div',null,
+      h('div',{className:'modal-body'},
+        activeTab==='info'&&h('div',{style:{display:'flex',flexDirection:'column',height:'100%'}},
           h('div',{className:'form-group'},
             h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'6px'}},
               h('label',{className:'form-label',style:{margin:0}},'Title ',h('span',{className:'req'},'*')),
@@ -1733,7 +1741,7 @@ function TCModal({ tc, task, project, testCases, setTestCases, defects, setDefec
           form.status==='Failed'&&h('div',{className:'confirm-box',style:{marginBottom:'12px'}},
             h('p',{style:{color:'var(--amber)',fontSize:'12px',fontWeight:'500'}},'TC นี้ Failed — โปรดผูก Defect ในแท็บ Defects')
           ),
-          h('div',{className:'form-group'},
+          h('div',{className:'form-group',style:{flex:'1',display:'flex',flexDirection:'column',marginBottom:'8px'}},
             h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'6px'}},
               h('label',{className:'form-label',style:{margin:0}},'Scenario Description'),
               canEdit&&h('button',{
@@ -1747,7 +1755,7 @@ function TCModal({ tc, task, project, testCases, setTestCases, defects, setDefec
                 }
               },'⊕ Insert Template')
             ),
-            h('textarea',{className:'form-textarea',style:{minHeight:'208px',fontFamily:'var(--mono)',fontSize:'12px'},value:form.scenarioDescription,onChange:e=>set('scenarioDescription',e.target.value),readOnly:!canEdit})
+            h('textarea',{className:'form-textarea',style:{flex:'1',minHeight:'120px',height:'100%',resize:'none',fontFamily:'var(--mono)',fontSize:'12px'},value:form.scenarioDescription,onChange:e=>set('scenarioDescription',e.target.value),readOnly:!canEdit})
           ),
           h('div',{className:'form-group'},
             h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'6px'}},
@@ -1765,10 +1773,10 @@ function TCModal({ tc, task, project, testCases, setTestCases, defects, setDefec
               h('span',{style:{fontWeight:'600',color:'var(--accent)'}},`Step ${i+1}`),
               canEdit&&form.steps.length>1&&h('button',{className:'btn btn-sm btn-danger',onClick:()=>removeStep(i)},'ลบ Step')
             ),
-            h('div',{className:'form-group'},h('label',{className:'form-label'},'Action / Step'),h('textarea',{className:'form-textarea',style:{minHeight:'60px'},value:step.action,onChange:e=>setStep(i,'action',e.target.value),readOnly:!canEdit})),
-            h('div',{className:'form-row'},
-              h('div',{className:'form-group'},h('label',{className:'form-label'},'Expected Result'),h('textarea',{className:'form-textarea',style:{minHeight:'60px'},value:step.expected,onChange:e=>setStep(i,'expected',e.target.value),readOnly:!canEdit})),
-              h('div',{className:'form-group'},h('label',{className:'form-label'},'Actual Result'),h('textarea',{className:'form-textarea',style:{minHeight:'60px'},value:step.actual,onChange:e=>setStep(i,'actual',e.target.value),readOnly:!canEdit}))
+            h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'16px'}},
+              h('div',{className:'form-group'},h('label',{className:'form-label'},'Action / Step'),h('textarea',{className:'form-textarea',style:{minHeight:'140px'},value:step.action,onChange:e=>setStep(i,'action',e.target.value),readOnly:!canEdit})),
+              h('div',{className:'form-group'},h('label',{className:'form-label'},'Expected Result'),h('textarea',{className:'form-textarea',style:{minHeight:'140px'},value:step.expected,onChange:e=>setStep(i,'expected',e.target.value),readOnly:!canEdit})),
+              h('div',{className:'form-group'},h('label',{className:'form-label'},'Actual Result'),h('textarea',{className:'form-textarea',style:{minHeight:'140px'},value:step.actual,onChange:e=>setStep(i,'actual',e.target.value),readOnly:!canEdit}))
             ),
             h('div',{className:'form-group'},
               h('label',{className:'form-label'},'Actual Result Files'),
