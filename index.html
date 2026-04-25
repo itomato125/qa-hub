@@ -495,46 +495,52 @@ function App() {
     localStorage.setItem('qah_theme', theme);
   }, [theme]);
 
-  // Handle invite link: capture ?invite=CODE from URL query string
+  // Handle invite link: capture ?invite=CODE&tid=TEAMID from URL query string
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get('invite');
+    const tid  = params.get('tid');
     if (code) {
       localStorage.setItem('qah_pending_invite', code);
-      // Remove ?invite= from URL without reload
+      if (tid) localStorage.setItem('qah_pending_invite_tid', tid);
       params.delete('invite');
+      params.delete('tid');
       const newSearch = params.toString();
-      const newUrl = window.location.pathname + (newSearch ? '?' + newSearch : '') + window.location.hash;
-      history.replaceState(null, '', newUrl);
+      history.replaceState(null, '', window.location.pathname + (newSearch ? '?' + newSearch : '') + window.location.hash);
     }
   }, []);
 
   // Invite: auto-fill join code and trigger join flow after login
   const [autoJoinCode, setAutoJoinCode] = useState(() => localStorage.getItem('qah_pending_invite') || '');
 
-  const processInvite = (user, teamList) => {
+  const processInvite = (user) => {
     if (!user) return;
     const code = localStorage.getItem('qah_pending_invite');
+    const tid  = localStorage.getItem('qah_pending_invite_tid');
     if (!code) return;
-    const t = (teamList || teams).find(t => t.inviteCode === code);
-    if (!t) {
-      // Teams not loaded yet or user is on different browser — keep code, will retry
-      return;
-    }
+
+    // Try to find team from local data (same browser) or use tid directly
+    const t = teams.find(t => t.inviteCode === code) || (tid ? { id: tid, name: 'ทีมที่ได้รับเชิญ' } : null);
+    if (!t) { showToast('ไม่พบข้อมูลทีม กรุณาติดต่อ Admin', 'error'); return; }
+
     localStorage.removeItem('qah_pending_invite');
+    localStorage.removeItem('qah_pending_invite_tid');
     setAutoJoinCode('');
+
     if (members.some(m => m.teamId===t.id && m.userId===user.id)) {
-      showToast(`คุณเป็นสมาชิกทีม "${t.name}" อยู่แล้ว`, 'info');
-      setCurrentTeam(t); setPage('dashboard'); return;
+      const found = teams.find(x=>x.id===t.id);
+      if (found) { setCurrentTeam(found); setPage('dashboard'); }
+      showToast('คุณเป็นสมาชิกทีมนี้อยู่แล้ว', 'info'); return;
     }
     if (pendingMembers.some(p => p.teamId===t.id && p.userId===user.id && p.status==='pending')) {
-      showToast(`รอ Admin ทีม "${t.name}" อนุมัติอยู่แล้ว`, 'info'); return;
+      showToast('คุณส่งคำขอรอ Admin อนุมัติอยู่แล้ว', 'info'); return;
     }
     setPendingMembers(prev => [...prev, { id: uid(), teamId: t.id, userId: user.id, requestedAt: now(), status: 'pending' }]);
-    showToast(`✅ ส่งคำขอเข้าร่วมทีม "${t.name}" แล้ว รอ Admin อนุมัติ`);
+    const tName = teams.find(x=>x.id===t.id)?.name || 'ทีมที่ได้รับเชิญ';
+    showToast(`✅ ส่งคำขอเข้าร่วมทีม "${tName}" แล้ว รอ Admin อนุมัติ`);
   };
 
-  useEffect(() => { processInvite(currentUser, teams); }, [currentUser, teams.length]);
+  useEffect(() => { processInvite(currentUser); }, [currentUser]);
   const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark');
 
   const navigate = (pg, ctx2={}) => { setPage(pg); if (ctx2.projectId !== undefined) setNavCtx(p=>({...p,...ctx2})); else if (Object.keys(ctx2).length) setNavCtx(p=>({...p,...ctx2})); };
@@ -2181,7 +2187,7 @@ function TeamSettingsPage({ currentTeam, currentUser, setTeams, members, setMemb
   };
 
   const baseUrl = window.location.href.split('?')[0].split('#')[0];
-  const inviteLink = baseUrl + '?invite=' + currentTeam.inviteCode;
+  const inviteLink = baseUrl + '?invite=' + currentTeam.inviteCode + '&tid=' + currentTeam.id;
 
   const tabList = [
     {key:'members',label:'Members'},
