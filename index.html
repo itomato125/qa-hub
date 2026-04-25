@@ -495,30 +495,40 @@ function App() {
     localStorage.setItem('qah_theme', theme);
   }, [theme]);
 
-  // Handle invite link: #invite=CODE
+  // Handle invite link: capture ?invite=CODE from URL query string
   useEffect(() => {
-    const hash = window.location.hash;
-    const match = hash.match(/[#&]invite=([^&]+)/);
-    if (match) {
-      const code = match[1];
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('invite');
+    if (code) {
       localStorage.setItem('qah_pending_invite', code);
-      window.location.hash = '';
+      // Remove ?invite= from URL without reload
+      params.delete('invite');
+      const newSearch = params.toString();
+      const newUrl = window.location.pathname + (newSearch ? '?' + newSearch : '') + window.location.hash;
+      history.replaceState(null, '', newUrl);
     }
   }, []);
 
-  // After login, auto-process pending invite
-  useEffect(() => {
-    if (!currentUser) return;
+  // Process pending invite whenever currentUser or teams changes
+  const processInvite = (user) => {
+    if (!user) return;
     const code = localStorage.getItem('qah_pending_invite');
     if (!code) return;
-    localStorage.removeItem('qah_pending_invite');
     const t = teams.find(t => t.inviteCode === code);
-    if (!t) return;
-    if (members.some(m => m.teamId===t.id && m.userId===currentUser.id)) return;
-    if (pendingMembers.some(p => p.teamId===t.id && p.userId===currentUser.id)) return;
-    setPendingMembers(prev => [...prev, { id: uid(), teamId: t.id, userId: currentUser.id, requestedAt: now(), status: 'pending' }]);
-    showToast(`ส่งคำขอเข้าร่วมทีม "${t.name}" แล้ว รอ Admin อนุมัติ`, 'info');
-  }, [currentUser]);
+    if (!t) { showToast('ไม่พบทีมจาก Invite Link นี้', 'error'); localStorage.removeItem('qah_pending_invite'); return; }
+    localStorage.removeItem('qah_pending_invite');
+    if (members.some(m => m.teamId===t.id && m.userId===user.id)) {
+      showToast(`คุณเป็นสมาชิกทีม "${t.name}" อยู่แล้ว`, 'info'); return;
+    }
+    if (pendingMembers.some(p => p.teamId===t.id && p.userId===user.id && p.status==='pending')) {
+      showToast(`คุณส่งคำขอเข้าทีม "${t.name}" รอ Admin อนุมัติอยู่แล้ว`, 'info'); return;
+    }
+    setPendingMembers(prev => [...prev, { id: uid(), teamId: t.id, userId: user.id, requestedAt: now(), status: 'pending' }]);
+    showToast(`✅ ส่งคำขอเข้าร่วมทีม "${t.name}" แล้ว รอ Admin อนุมัติ`);
+  };
+
+  // Run on mount (session restored) and on currentUser change (login)
+  useEffect(() => { processInvite(currentUser); }, [currentUser, teams.length]);
   const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark');
 
   const navigate = (pg, ctx2={}) => { setPage(pg); if (ctx2.projectId !== undefined) setNavCtx(p=>({...p,...ctx2})); else if (Object.keys(ctx2).length) setNavCtx(p=>({...p,...ctx2})); };
@@ -2151,7 +2161,8 @@ function TeamSettingsPage({ currentTeam, currentUser, setTeams, members, setMemb
     showToast(`ปฏิเสธ ${u?.name||'user'} แล้ว`,'error');
   };
 
-  const inviteLink = window.location.href.split('#')[0]+'#invite='+currentTeam.inviteCode;
+  const baseUrl = window.location.href.split('?')[0].split('#')[0];
+  const inviteLink = baseUrl + '?invite=' + currentTeam.inviteCode;
 
   const tabList = [
     {key:'members',label:'Members'},
