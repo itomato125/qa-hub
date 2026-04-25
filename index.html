@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="th">
 <head>
@@ -174,10 +173,11 @@
   .tc-title:hover { text-decoration: underline; }
   
   /* MODAL */
-  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: flex-start; justify-content: center; z-index: 9999; padding: 40px 16px; overflow-y: auto; }
-  .modal { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r2); width: 100%; max-width: 780px; box-shadow: var(--shadow); }
-  .modal-sm { max-width: 440px; }
-  .modal-lg { max-width: 1000px; }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 20px 16px; overflow-y: auto; }
+  .modal { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r2); width: 100%; max-width: 96vw; max-height: 94vh; display: flex; flex-direction: column; box-shadow: var(--shadow); }
+  .modal-sm { max-width: 460px; max-height: unset; }
+  .modal-lg { max-width: 96vw; }
+  .modal-body { overflow-y: auto; flex: 1; }
   .modal-header { padding: 20px 24px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
   .modal-title { font-size: 16px; font-weight: 600; }
   .modal-body { padding: 20px 24px; }
@@ -331,7 +331,7 @@
 <div id="modal-root"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <script>
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 const h = React.createElement;
@@ -1137,6 +1137,7 @@ function TaskDetailPage({ navCtx, projects, tasks, testCases, setTestCases, defe
   const [filterPriority, setFilterPriority] = useState('');
   const [selected, setSelected] = useState([]);
   const [delConfirm, setDelConfirm] = useState(null);
+  const [cloneRename, setCloneRename] = useState(null); // {tc, pendingTitle}
 
   if (!task || !project) return h('div',{className:'empty'},'ไม่พบ Task');
   
@@ -1154,6 +1155,35 @@ function TaskDetailPage({ navCtx, projects, tasks, testCases, setTestCases, defe
     addLog('Delete TC', `ลบ TC: ${tc.title}`);
     showToast('ลบ Test Case สำเร็จ');
     setDelConfirm(null);
+  };
+
+  const cloneTC = (tc) => {
+    setCloneRename({ tc, pendingTitle: tc.title + ' (Copy)' });
+  };
+
+  const confirmClone = () => {
+    const { tc, pendingTitle } = cloneRename;
+    const title = pendingTitle.trim();
+    if (!title) return;
+    const cloned = {
+      ...tc,
+      id: uid(),
+      title,
+      status: 'Not Start',
+      assignee: '',
+      comment: '',
+      files: [],
+      relatedTcIds: [],
+      testCaseId: null,
+      createdAt: now(),
+      updatedAt: now(),
+      createdBy: currentUser.id,
+      steps: (tc.steps||[]).map(s => ({ ...s, id: uid(), actual: '', files: [] })),
+    };
+    setTestCases(p => [...p, cloned]);
+    addLog('Clone TC', `Clone TC: ${tc.title} → ${title}`);
+    showToast(`Clone "${title}" สำเร็จ ✓`);
+    setCloneRename(null);
   };
 
   const deleteSelected = () => {
@@ -1181,7 +1211,7 @@ function TaskDetailPage({ navCtx, projects, tasks, testCases, setTestCases, defe
   };
 
   const downloadTemplate = () => {
-    const headers = [['Title*','Project*','Task*','Priority','Detection','Status','Scenario Description','Tags / Labels','Test Data','Test Steps','Expected Result','Actual Result']];
+    const headerRow = ['Title*','Project*','Task*','Priority','Detection','Status','Scenario Description','Tags / Labels','Test Data','Test Steps','Expected Result','Actual Result'];
     const sample = [
       ['TC_001_Test','DEMO','Set','High','Positive','In Progress','ทดสอบเบสิค','SIT, REGRESSION, E2E','11100010010','Test AAAAA','Test AAAAA','AAAAA'],
       ['','','','','','','','','','Test BBBBB','Test BBBBB','BBBBB'],
@@ -1190,8 +1220,65 @@ function TaskDetailPage({ navCtx, projects, tasks, testCases, setTestCases, defe
       ['','','','','','','','','','Test 22222','Test 22222','22222'],
     ];
     const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet([...headers,...sample]);
-    ws['!cols'] = [18,12,10,10,12,14,20,22,16,18,18,18].map(w=>({wch:w}));
+    const ws = XLSX.utils.aoa_to_sheet([headerRow, ...sample]);
+    const colWidths = [18,12,10,10,12,14,20,22,16,18,18,18];
+    ws['!cols'] = colWidths.map(w=>({wch:w}));
+
+    // Style header row — dark navy bg + white bold text
+    const headerStyle = {
+      font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 11 },
+      fill: { patternType: 'solid', fgColor: { rgb: '1E3A5F' } },
+      alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+      border: {
+        top:    { style:'thin', color:{ rgb:'FFFFFF' } },
+        bottom: { style:'thin', color:{ rgb:'FFFFFF' } },
+        left:   { style:'thin', color:{ rgb:'FFFFFF' } },
+        right:  { style:'thin', color:{ rgb:'FFFFFF' } },
+      }
+    };
+
+    // Style TC title rows (rows where Title* is filled) — light blue bg
+    const tcTitleStyle = {
+      font: { bold: true, color: { rgb: '0F2A4A' }, sz: 10 },
+      fill: { patternType: 'solid', fgColor: { rgb: 'D6E8FA' } },
+      alignment: { vertical: 'center', wrapText: true },
+      border: {
+        top:    { style:'thin', color:{ rgb: 'A0BFD8' } },
+        bottom: { style:'thin', color:{ rgb: 'A0BFD8' } },
+        left:   { style:'thin', color:{ rgb: 'A0BFD8' } },
+        right:  { style:'thin', color:{ rgb: 'A0BFD8' } },
+      }
+    };
+
+    // Style step rows (rows where Title* is blank) — white bg
+    const stepStyle = {
+      font: { color: { rgb: '374151' }, sz: 10 },
+      fill: { patternType: 'solid', fgColor: { rgb: 'FFFFFF' } },
+      alignment: { vertical: 'center', wrapText: true },
+      border: {
+        top:    { style:'thin', color:{ rgb: 'D1DAE8' } },
+        bottom: { style:'thin', color:{ rgb: 'D1DAE8' } },
+        left:   { style:'thin', color:{ rgb: 'D1DAE8' } },
+        right:  { style:'thin', color:{ rgb: 'D1DAE8' } },
+      }
+    };
+
+    const totalRows = 1 + sample.length;
+    const totalCols = headerRow.length;
+    for (let R = 0; R < totalRows; R++) {
+      for (let C = 0; C < totalCols; C++) {
+        const addr = XLSX.utils.encode_cell({ r: R, c: C });
+        if (!ws[addr]) ws[addr] = { t: 's', v: '' };
+        if (R === 0) {
+          ws[addr].s = headerStyle;
+        } else {
+          const isTC = sample[R-1][0] !== '';
+          ws[addr].s = isTC ? tcTitleStyle : stepStyle;
+        }
+      }
+    }
+
+    ws['!rows'] = [{ hpt: 22 }]; // header row height
     XLSX.utils.book_append_sheet(wb, ws, 'Template');
     XLSX.writeFile(wb, 'TestCase_Template.xlsx');
   };
@@ -1373,8 +1460,9 @@ function TaskDetailPage({ navCtx, projects, tasks, testCases, setTestCases, defe
                 h('span',{className:'defect-link',onClick:()=>navigate('defects'),title:d.title},d.defectId),
                 h('span',{className:'badge '+(d.status==='Closed'?'badge-green':d.status==='Open'?'badge-red':d.status==='Fixed'?'badge-cyan':d.status==='Re-Open'?'badge-pink':d.status==='Ready to Test'?'badge-purple':d.status==='Rejected'?'badge-gray':'badge-amber'),style:{fontSize:'10px',padding:'1px 6px'}},d.status)
               ))):h('span',{style:{color:'var(--text3)',fontSize:'12px'}},'—')),
-              h('td',null,h('div',{style:{display:'flex',gap:'4px'}},
+              h('td',null,h('div',{style:{display:'flex',gap:'4px',flexWrap:'wrap'}},
                 h('button',{className:'btn btn-sm',onClick:()=>{setEditTC(tc);setShowTC(true);}},'ดู/แก้ไข'),
+                canEdit&&h('button',{className:'btn btn-sm',style:{color:'var(--cyan)',borderColor:'var(--cyan)',background:'var(--cyan-bg)'},title:'Clone TC — reset Assignee, Status, Defect',onClick:()=>cloneTC(tc)},'⎘ Clone'),
                 canDelete&&h('button',{className:'btn btn-sm btn-danger',onClick:()=>setDelConfirm(tc)},'ลบ')
               ))
             );
@@ -1402,13 +1490,122 @@ function TaskDetailPage({ navCtx, projects, tasks, testCases, setTestCases, defe
       )
     ),
     showTC&&h(TCModal,{tc:editTC,task,project,testCases,setTestCases,defects,setDefects,currentUser,users,canEdit,showToast,addLog,onClose:()=>setShowTC(false),navigate,openDefectModal}),
+    cloneRename&&ReactDOM.createPortal(
+      h('div',{className:'modal-overlay',style:{zIndex:10000},onClick:e=>{if(e.target.className==='modal-overlay')setCloneRename(null);}},
+        h('div',{className:'modal modal-sm'},
+          h('div',{className:'modal-header'},
+            h('span',{className:'modal-title'},'ตั้งชื่อ Test Case ใหม่'),
+            h('button',{className:'modal-close',onClick:()=>setCloneRename(null)},'✕')
+          ),
+          h('div',{className:'modal-body'},
+            h('p',{style:{fontSize:'13px',color:'var(--text2)',marginBottom:'12px'}},'Clone จาก: ',h('strong',{style:{color:'var(--text)'}},cloneRename.tc.title)),
+            h('div',{className:'form-group',style:{marginBottom:0}},
+              h('label',{className:'form-label'},'ชื่อ Test Case ',h('span',{className:'req'},'*')),
+              h('input',{
+                className:'form-input',
+                value:cloneRename.pendingTitle,
+                autoFocus:true,
+                onChange:e=>setCloneRename(p=>({...p,pendingTitle:e.target.value})),
+                onKeyDown:e=>{if(e.key==='Enter')confirmClone();if(e.key==='Escape')setCloneRename(null);}
+              })
+            )
+          ),
+          h('div',{className:'modal-footer'},
+            h('button',{className:'btn',onClick:()=>setCloneRename(null)},'ยกเลิก'),
+            h('button',{className:'btn btn-primary',onClick:confirmClone,disabled:!cloneRename.pendingTitle.trim()},'✓ Clone')
+          )
+        )
+      ),
+      document.getElementById('modal-root')
+    ),
     delConfirm&&h(ConfirmModal,{title:`ลบ TC "${delConfirm.title}"?`,message:'Test Case และ Defect ที่ผูกไว้ทั้งหมดจะถูกลบ',danger:true,onConfirm:()=>deleteTC(delConfirm),onClose:()=>setDelConfirm(null)})
+  );
+}
+
+// ─── TAGS TEMPLATE DROPDOWN ──────────────────────────────────────────────────
+function TagsTemplateDropdown({ onInsert }) {
+  const [open, setOpen] = useState(false);
+  const templates = [
+    { label: 'SPRINT  —  ENV, PROJECT, TASK, SPRINT, NAME, OTHER', value: 'ENV, PROJECT, TASK, SPRINT, NAME, OTHER' },
+    { label: 'WAVE  —  ENV, PROJECT, TASK, WAVE, NAME, OTHER',     value: 'ENV, PROJECT, TASK, WAVE, NAME, OTHER' },
+  ];
+  return h('div', { style:{position:'relative'} },
+    h('button', {
+      type:'button',
+      className:'btn btn-sm',
+      style:{fontSize:'11px',padding:'3px 8px',color:'var(--amber)',borderColor:'var(--amber)',background:'var(--amber-bg)'},
+      onClick:()=>setOpen(o=>!o)
+    }, '⊕ Insert Template ▾'),
+    open && h('div', {
+      style:{
+        position:'absolute',top:'100%',right:0,marginTop:'4px',
+        background:'var(--bg2)',border:'1px solid var(--border2)',
+        borderRadius:'var(--r)',zIndex:200,boxShadow:'var(--shadow)',
+        minWidth:'320px',overflow:'hidden'
+      }
+    },
+      h('div',{style:{padding:'6px 10px',fontSize:'11px',color:'var(--text3)',borderBottom:'1px solid var(--border)',fontWeight:'600',letterSpacing:'0.5px',textTransform:'uppercase'}},'เลือก Pattern'),
+      templates.map(t => h('div', {
+        key: t.value,
+        style:{padding:'10px 14px',cursor:'pointer',color:'var(--text)',transition:'background 0.1s'},
+        onMouseEnter:e=>e.currentTarget.style.background='var(--bg3)',
+        onMouseLeave:e=>e.currentTarget.style.background='',
+        onClick:()=>{ onInsert(t.value); setOpen(false); }
+      },
+        h('div',{style:{fontSize:'12px',fontWeight:'600',color:'var(--amber)',marginBottom:'3px'}},t.label.split('  —  ')[0]),
+        h('div',{style:{fontSize:'11px',color:'var(--text2)',fontFamily:'var(--mono)'}},t.value)
+      ))
+    ),
+    open && h('div',{style:{position:'fixed',inset:0,zIndex:199},onClick:()=>setOpen(false)})
+  );
+}
+
+// ─── TITLE TEMPLATE DROPDOWN ─────────────────────────────────────────────────
+function TitleTemplateDropdown({ onInsert }) {
+  const [open, setOpen] = useState(false);
+  const templates = [
+    { label: 'TC_ENV_PROJECT_NAME_00x', value: 'TC_ENV_PROJECT_NAME_001' },
+    { label: 'SNO_ENV_PROJECT_NAME_00x', value: 'SNO_ENV_PROJECT_NAME_001' },
+  ];
+  return h('div', { style:{position:'relative'} },
+    h('button', {
+      type:'button',
+      className:'btn btn-sm',
+      style:{fontSize:'11px',padding:'3px 8px',color:'var(--cyan)',borderColor:'var(--cyan)',background:'var(--cyan-bg)'},
+      onClick:()=>setOpen(o=>!o)
+    }, '⊕ Insert Template ▾'),
+    open && h('div', {
+      style:{
+        position:'absolute',top:'100%',right:0,marginTop:'4px',
+        background:'var(--bg2)',border:'1px solid var(--border2)',
+        borderRadius:'var(--r)',zIndex:200,boxShadow:'var(--shadow)',
+        minWidth:'240px',overflow:'hidden'
+      }
+    },
+      h('div', {style:{padding:'6px 10px',fontSize:'11px',color:'var(--text3)',borderBottom:'1px solid var(--border)',fontWeight:'600',letterSpacing:'0.5px',textTransform:'uppercase'}}, 'เลือก Pattern'),
+      templates.map(t => h('div', {
+        key:t.value,
+        style:{
+          padding:'9px 14px',fontSize:'13px',cursor:'pointer',
+          color:'var(--text)',fontFamily:'var(--mono)',
+          transition:'background 0.1s',
+        },
+        onMouseEnter:e=>e.currentTarget.style.background='var(--bg3)',
+        onMouseLeave:e=>e.currentTarget.style.background='',
+        onClick:()=>{ onInsert(t.value); setOpen(false); }
+      }, t.label))
+    ),
+    open && h('div', {
+      style:{position:'fixed',inset:0,zIndex:199},
+      onClick:()=>setOpen(false)
+    })
   );
 }
 
 // ─── TC MODAL ─────────────────────────────────────────────────────────────────
 function TCModal({ tc, task, project, testCases, setTestCases, defects, setDefects, currentUser, users, canEdit, showToast, addLog, onClose, navigate, openDefectModal }) {
   const isEdit = !!tc;
+  const SCENARIO_TEMPLATE = 'Scenario Description\n* อธิบายรายละเอียด\n\nPrerequisite\n1. Existing Customer\n2. ข้อมูลเพิ่มก่อนทดสอบ\n3. ข้อมูลเพิ่มก่อนทดสอบ\n\nPre steps\n1. Log in URL : ใส่ URL สำหรับทดสอบ\n2. ขั้นตอนการทดสอบ\n   * Step 1\n   * Step 2\n   * Step 3\n3. ขั้นตอนการทดสอบเพิ่มเติม\n   * Step 1';
   const blank = { title:'', priority:'Medium', detection:'Positive', status:'Not Start', scenarioDescription:'', tags:'', testData:'', comment:'', assignee:'', steps:[{id:uid(),action:'',expected:'',actual:'',files:[]}], files:[] };
   const [form, setForm] = useState(isEdit ? {...blank,...tc, steps:(tc.steps&&tc.steps.length?tc.steps:[{id:uid(),action:'',expected:'',actual:'',files:[]}])} : blank);
   const [dirty, setDirty] = useState(false);
@@ -1495,7 +1692,13 @@ function TCModal({ tc, task, project, testCases, setTestCases, defects, setDefec
       ),
       h('div',{className:'modal-body',style:{maxHeight:'60vh',overflowY:'auto'}},
         activeTab==='info'&&h('div',null,
-          h('div',{className:'form-group'},h('label',{className:'form-label'},'Title ',h('span',{className:'req'},'*')),h('input',{className:'form-input',value:form.title,onChange:e=>set('title',e.target.value),readOnly:!canEdit})),
+          h('div',{className:'form-group'},
+            h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'6px'}},
+              h('label',{className:'form-label',style:{margin:0}},'Title ',h('span',{className:'req'},'*')),
+              canEdit&&h(TitleTemplateDropdown,{onInsert:tpl=>set('title',tpl)})
+            ),
+            h('input',{className:'form-input',value:form.title,onChange:e=>set('title',e.target.value),readOnly:!canEdit})
+          ),
           h('div',{className:'form-row3'},
             h('div',{className:'form-group'},h('label',{className:'form-label'},'Project'),h('input',{className:'form-input',value:project.name,readOnly:true,style:{opacity:0.7}})),
             h('div',{className:'form-group'},h('label',{className:'form-label'},'Task'),h('input',{className:'form-input',value:task.name,readOnly:true,style:{opacity:0.7}})),
@@ -1530,8 +1733,29 @@ function TCModal({ tc, task, project, testCases, setTestCases, defects, setDefec
           form.status==='Failed'&&h('div',{className:'confirm-box',style:{marginBottom:'12px'}},
             h('p',{style:{color:'var(--amber)',fontSize:'12px',fontWeight:'500'}},'TC นี้ Failed — โปรดผูก Defect ในแท็บ Defects')
           ),
-          h('div',{className:'form-group'},h('label',{className:'form-label'},'Scenario Description'),h('textarea',{className:'form-textarea',value:form.scenarioDescription,onChange:e=>set('scenarioDescription',e.target.value),readOnly:!canEdit})),
-          h('div',{className:'form-group'},h('label',{className:'form-label'},'Tags / Labels'),h('input',{className:'form-input',value:form.tags,onChange:e=>set('tags',e.target.value),placeholder:'คั่นด้วย comma เช่น SIT, REGRESSION, E2E',readOnly:!canEdit})),
+          h('div',{className:'form-group'},
+            h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'6px'}},
+              h('label',{className:'form-label',style:{margin:0}},'Scenario Description'),
+              canEdit&&h('button',{
+                type:'button',
+                className:'btn btn-sm',
+                style:{fontSize:'11px',padding:'3px 8px',color:'var(--purple)',borderColor:'var(--purple)',background:'var(--purple-bg)'},
+                onClick:()=>{
+                  const tpl = SCENARIO_TEMPLATE;
+                  const cur = form.scenarioDescription;
+                  set('scenarioDescription', cur ? cur + '\n\n' + tpl : tpl);
+                }
+              },'⊕ Insert Template')
+            ),
+            h('textarea',{className:'form-textarea',style:{minHeight:'208px',fontFamily:'var(--mono)',fontSize:'12px'},value:form.scenarioDescription,onChange:e=>set('scenarioDescription',e.target.value),readOnly:!canEdit})
+          ),
+          h('div',{className:'form-group'},
+            h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'6px'}},
+              h('label',{className:'form-label',style:{margin:0}},'Tags / Labels'),
+              canEdit&&h(TagsTemplateDropdown,{onInsert:tpl=>{const cur=form.tags;set('tags',cur?cur+', '+tpl:tpl);}})
+            ),
+            h('input',{className:'form-input',value:form.tags,onChange:e=>set('tags',e.target.value),placeholder:'คั่นด้วย comma เช่น ENV, PROJECT, TASK',readOnly:!canEdit})
+          ),
           form.tags&&h('div',{style:{marginTop:'4px'}},form.tags.split(',').map(t=>t.trim()).filter(Boolean).map(t=>h('span',{key:t,className:'tag'},t)))
         ),
         activeTab==='steps'&&h('div',null,
