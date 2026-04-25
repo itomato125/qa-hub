@@ -625,8 +625,6 @@ function LoginPage({ users, setUsers, loginLogs, setLoginLogs, setCurrentUser, s
       !isReg && h('div', {style:{background:'var(--bg3)',border:'1px solid var(--border)',borderRadius:'var(--r)',padding:'10px 14px',marginBottom:'16px',fontSize:'12px',color:'var(--text2)'}},
         h('div',{style:{fontWeight:'600',marginBottom:'6px',color:'var(--text)'}},'🔑 Default Accounts'),
         h('div',{style:{display:'flex',flexDirection:'column',gap:'4px'}},
-          h('span',null,'admin@qa.dev / admin123 (Admin User)'),
-          h('span',null,'tester@qa.dev / test123 (Tester A)')
         )
       ),
       isReg && h('div', { className: 'form-group' },
