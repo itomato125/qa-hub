@@ -495,49 +495,57 @@ function App() {
     localStorage.setItem('qah_theme', theme);
   }, [theme]);
 
-  // Handle invite link: capture ?invite=CODE&tid=TEAMID from URL query string
+  // Handle invite link: capture ?join=BASE64_PAYLOAD from URL
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const code = params.get('invite');
-    const tid  = params.get('tid');
-    if (code) {
-      localStorage.setItem('qah_pending_invite', code);
-      if (tid) localStorage.setItem('qah_pending_invite_tid', tid);
-      params.delete('invite');
-      params.delete('tid');
-      const newSearch = params.toString();
-      history.replaceState(null, '', window.location.pathname + (newSearch ? '?' + newSearch : '') + window.location.hash);
+    const payload = params.get('join');
+    if (payload) {
+      try {
+        const teamInfo = JSON.parse(atob(decodeURIComponent(payload)));
+        localStorage.setItem('qah_join_payload', JSON.stringify(teamInfo));
+      } catch(e) { console.error('Invalid invite link', e); }
+      params.delete('join');
+      history.replaceState(null, '', window.location.pathname + (params.toString() ? '?' + params.toString() : '') + window.location.hash);
     }
   }, []);
 
   // Invite: auto-fill join code and trigger join flow after login
-  const [autoJoinCode, setAutoJoinCode] = useState(() => localStorage.getItem('qah_pending_invite') || '');
+  const [autoJoinCode, setAutoJoinCode] = useState(() => {
+    try {
+      const p = localStorage.getItem('qah_join_payload');
+      return p ? JSON.parse(p).inviteCode || '' : '';
+    } catch(e) { return ''; }
+  });
 
   const processInvite = (user) => {
     if (!user) return;
-    const code = localStorage.getItem('qah_pending_invite');
-    const tid  = localStorage.getItem('qah_pending_invite_tid');
-    if (!code) return;
-
-    // Try to find team from local data (same browser) or use tid directly
-    const t = teams.find(t => t.inviteCode === code) || (tid ? { id: tid, name: 'ทีมที่ได้รับเชิญ' } : null);
-    if (!t) { showToast('ไม่พบข้อมูลทีม กรุณาติดต่อ Admin', 'error'); return; }
-
-    localStorage.removeItem('qah_pending_invite');
-    localStorage.removeItem('qah_pending_invite_tid');
+    const raw = localStorage.getItem('qah_join_payload');
+    if (!raw) return;
+    let teamInfo;
+    try { teamInfo = JSON.parse(raw); } catch(e) { localStorage.removeItem('qah_join_payload'); return; }
+    localStorage.removeItem('qah_join_payload');
     setAutoJoinCode('');
 
-    if (members.some(m => m.teamId===t.id && m.userId===user.id)) {
-      const found = teams.find(x=>x.id===t.id);
-      if (found) { setCurrentTeam(found); setPage('dashboard'); }
-      showToast('คุณเป็นสมาชิกทีมนี้อยู่แล้ว', 'info'); return;
+    const { id: teamId, name: teamName, inviteCode } = teamInfo;
+
+    // If same browser as admin — verify code still valid
+    const localTeam = teams.find(t => t.id === teamId);
+    if (localTeam && localTeam.inviteCode !== inviteCode) {
+      showToast('Invite Link หมดอายุหรือถูกรีเซ็ต', 'error'); return;
     }
-    if (pendingMembers.some(p => p.teamId===t.id && p.userId===user.id && p.status==='pending')) {
-      showToast('คุณส่งคำขอรอ Admin อนุมัติอยู่แล้ว', 'info'); return;
+    if (members.some(m => m.teamId===teamId && m.userId===user.id)) {
+      if (localTeam) { setCurrentTeam(localTeam); setPage('dashboard'); }
+      showToast(`คุณเป็นสมาชิกทีม "${teamName}" อยู่แล้ว`, 'info'); return;
     }
-    setPendingMembers(prev => [...prev, { id: uid(), teamId: t.id, userId: user.id, requestedAt: now(), status: 'pending' }]);
-    const tName = teams.find(x=>x.id===t.id)?.name || 'ทีมที่ได้รับเชิญ';
-    showToast(`✅ ส่งคำขอเข้าร่วมทีม "${tName}" แล้ว รอ Admin อนุมัติ`);
+    if (pendingMembers.some(p => p.teamId===teamId && p.userId===user.id && p.status==='pending')) {
+      showToast(`รอ Admin อนุมัติทีม "${teamName}" อยู่แล้ว`, 'info'); return;
+    }
+    setPendingMembers(prev => [...prev, {
+      id: uid(), teamId, userId: user.id,
+      requestedAt: now(), status: 'pending',
+      teamName // store for display even if admin is on different session
+    }]);
+    showToast(`✅ ส่งคำขอเข้าร่วมทีม "${teamName}" แล้ว รอ Admin อนุมัติ`);
   };
 
   useEffect(() => { processInvite(currentUser); }, [currentUser]);
@@ -2180,6 +2188,7 @@ function TeamSettingsPage({ currentTeam, currentUser, setTeams, members, setMemb
     addLog('Approve Member',`Approve ${u?.name||req.userId} เข้าทีม`);
     showToast(`อนุมัติ ${u?.name||'user'} สำเร็จ ✓`);
   };
+  const teamName = currentTeam?.name || '';
   const rejectPending = (req) => {
     setPendingMembers(p=>p.map(x=>x.id===req.id?{...x,status:'rejected'}:x));
     const u=users.find(u=>u.id===req.userId);
@@ -2187,7 +2196,8 @@ function TeamSettingsPage({ currentTeam, currentUser, setTeams, members, setMemb
   };
 
   const baseUrl = window.location.href.split('?')[0].split('#')[0];
-  const inviteLink = baseUrl + '?invite=' + currentTeam.inviteCode + '&tid=' + currentTeam.id;
+  const teamPayload = btoa(JSON.stringify({ id: currentTeam.id, name: currentTeam.name, inviteCode: currentTeam.inviteCode }));
+  const inviteLink = baseUrl + '?join=' + encodeURIComponent(teamPayload);
 
   const tabList = [
     {key:'members',label:'Members'},
