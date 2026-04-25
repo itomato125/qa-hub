@@ -397,10 +397,49 @@ const detectionOpts = ['Positive','Negative'];
 const getStore = (k, def) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch { return def; } };
 const setStore = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 
+// Merge default users into stored users (so default accounts always work across browsers)
+const mergeUsers = (stored, defaults) => {
+  const result = [...stored];
+  for (const d of defaults) {
+    if (!result.find(u => u.id === d.id)) result.push(d);
+  }
+  return result;
+};
+
 // ─── INITIAL DATA ─────────────────────────────────────────────────────────────
 const INIT_USERS = [
   { id:'u1', name:'Admin User', email:'admin@qa.dev', password:'admin123', color:'#4f8ef7' },
-  { id:'u2', name:'Tester A', email:'tester@qa.dev', password:'test123', color:'#34d399' }
+  { id:'u2', name:'Tester A', email:'tester@qa.dev', password:'test123', color:'#34d399' },
+  { id:'u3',  name:'Thiss7om',        email:'thosapon.s@qa.dev', password:'test123', color:'#f472b6' },
+  { id:'u4',  name:'QACOB',      email:'testercobttb@qa.dev', password:'test123', color:'#a78bfa' },
+  { id:'u5',  name:'QAAIS',        email:'testere2eais03@qa.dev', password:'test123', color:'#fbbf24' },
+  { id:'u6',  name:'นภา สดใส',          email:'tester04@qa.dev', password:'test123', color:'#22d3ee' },
+  { id:'u7',  name:'ธนา พรหมดี',        email:'tester05@qa.dev', password:'test123', color:'#34d399' },
+  { id:'u8',  name:'กานดา ลิมสกุล',     email:'tester06@qa.dev', password:'test123', color:'#f87171' },
+  { id:'u9',  name:'ปิยะ วงศ์ใหญ่',     email:'tester07@qa.dev', password:'test123', color:'#4f8ef7' },
+  { id:'u10', name:'มาลี สุขสันต์',     email:'tester08@qa.dev', password:'test123', color:'#fb923c' },
+  { id:'u11', name:'อนุชา ทองดี',       email:'tester09@qa.dev', password:'test123', color:'#a78bfa' },
+  { id:'u12', name:'รัตนา บุญมาก',      email:'tester10@qa.dev', password:'test123', color:'#22d3ee' },
+  { id:'u13', name:'ชาญชัย ศรีสุข',     email:'tester11@qa.dev', password:'test123', color:'#f472b6' },
+  { id:'u14', name:'พรทิพย์ แก้วใส',    email:'tester12@qa.dev', password:'test123', color:'#34d399' },
+  { id:'u15', name:'สุรชัย ดาราศาสตร์',  email:'tester13@qa.dev', password:'test123', color:'#fbbf24' },
+  { id:'u16', name:'อรทัย นิลสวรรค์',   email:'tester14@qa.dev', password:'test123', color:'#f87171' },
+  { id:'u17', name:'ณัฐพล ชัยชนะ',      email:'tester15@qa.dev', password:'test123', color:'#4f8ef7' },
+  { id:'u18', name:'วันดี ประเสริฐ',    email:'tester16@qa.dev', password:'test123', color:'#fb923c' },
+  { id:'u19', name:'ประเสริฐ วัฒนา',    email:'tester17@qa.dev', password:'test123', color:'#a78bfa' },
+  { id:'u20', name:'จิราพร ทับทอง',     email:'tester18@qa.dev', password:'test123', color:'#22d3ee' },
+  { id:'u21', name:'ศิริพร เพชรงาม',    email:'tester19@qa.dev', password:'test123', color:'#f472b6' },
+  { id:'u22', name:'นพดล สว่างใจ',      email:'tester20@qa.dev', password:'test123', color:'#34d399' },
+  { id:'u23', name:'ภาวิณี รุ่งเรือง',   email:'tester21@qa.dev', password:'test123', color:'#fbbf24' },
+  { id:'u24', name:'กิตติ์ธเนศ ดีงาม',  email:'tester22@qa.dev', password:'test123', color:'#f87171' },
+  { id:'u25', name:'ลลิตา พงษ์สวัสดิ์',  email:'tester23@qa.dev', password:'test123', color:'#4f8ef7' },
+  { id:'u26', name:'วรวุฒิ จันทร์เพ็ญ',  email:'tester24@qa.dev', password:'test123', color:'#fb923c' },
+  { id:'u27', name:'พัชรี บัวขาว',      email:'tester25@qa.dev', password:'test123', color:'#a78bfa' },
+  { id:'u28', name:'ธีรภัทร มิ่งขวัญ',   email:'tester26@qa.dev', password:'test123', color:'#22d3ee' },
+  { id:'u29', name:'สุนิสา ขจรฤทธิ์',   email:'tester27@qa.dev', password:'test123', color:'#f472b6' },
+  { id:'u30', name:'อภิชาต โกมลวิช',    email:'tester28@qa.dev', password:'test123', color:'#34d399' },
+  { id:'u31', name:'ชลธิชา ศิลปชัย',    email:'tester29@qa.dev', password:'test123', color:'#fbbf24' },
+  { id:'u32', name:'ปริญญา เลิศสกุล',   email:'tester30@qa.dev', password:'test123', color:'#f87171' },
 ];
 const INIT_TEAMS = [];
 const INIT_PROJECTS = [];
@@ -419,7 +458,7 @@ function Toast({ msg, type, onDone }) {
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 function App() {
-  const [users, setUsers] = useState(() => getStore('qah_users', INIT_USERS));
+  const [users, setUsers] = useState(() => mergeUsers(getStore('qah_users', []), INIT_USERS));
   const [teams, setTeams] = useState(() => getStore('qah_teams', INIT_TEAMS));
   const [members, setMembers] = useState(() => getStore('qah_members', INIT_MEMBERS));
   const [projects, setProjects] = useState(() => getStore('qah_projects', INIT_PROJECTS));
@@ -583,6 +622,13 @@ function LoginPage({ users, setUsers, loginLogs, setLoginLogs, setCurrentUser, s
     h('div', { className: 'login-card' },
       h('div', { className: 'login-logo' }, 'QA', h('span', null, 'Hub')),
       h('p', { className: 'login-sub' }, isReg ? 'สร้างบัญชีใหม่' : 'Test Management Platform'),
+      !isReg && h('div', {style:{background:'var(--bg3)',border:'1px solid var(--border)',borderRadius:'var(--r)',padding:'10px 14px',marginBottom:'16px',fontSize:'12px',color:'var(--text2)'}},
+        h('div',{style:{fontWeight:'600',marginBottom:'6px',color:'var(--text)'}},'🔑 Default Accounts'),
+        h('div',{style:{display:'flex',flexDirection:'column',gap:'4px'}},
+          h('span',null,'admin@qa.dev / admin123 (Admin User)'),
+          h('span',null,'tester@qa.dev / test123 (Tester A)')
+        )
+      ),
       isReg && h('div', { className: 'form-group' },
         h('label', { className: 'form-label' }, 'ชื่อ'),
         h('input', { className: 'form-input', value: name, onChange: e => setName(e.target.value), placeholder: 'ชื่อ-นามสกุล' })
@@ -598,8 +644,8 @@ function LoginPage({ users, setUsers, loginLogs, setLoginLogs, setCurrentUser, s
       err && h('p', { style:{color:'var(--red)',fontSize:'12px',marginBottom:'12px'} }, err),
       h('button', { className: 'btn btn-primary', style:{width:'100%',justifyContent:'center',padding:'10px'}, onClick: isReg?register:login }, isReg?'สร้างบัญชี':'เข้าสู่ระบบ'),
       h('p', { style:{textAlign:'center',marginTop:'16px',fontSize:'13px',color:'var(--text2)'} },
-        isReg ? 'มีบัญชีแล้ว? ' : 'ยังไม่มีบัญชี? ',
-        h('span', { className: 'link', onClick: () => { setIsReg(!isReg); setErr(''); } }, isReg ? 'เข้าสู่ระบบ' : 'สร้างบัญชี')
+        isReg ? 'มีบัญชีแล้ว? ' : '',
+        h('span', { className: 'link', onClick: () => { setIsReg(!isReg); setErr(''); } }, isReg ? 'เข้าสู่ระบบ' : '')
       ),
       !isReg && h('p', { style:{textAlign:'center',marginTop:'8px',fontSize:'11px',color:'var(--text3)'} }, )
     )
