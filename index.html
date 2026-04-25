@@ -527,8 +527,6 @@ function App() {
     setAutoJoinCode('');
 
     const { id: teamId, name: teamName, inviteCode } = teamInfo;
-
-    // If same browser as admin — verify code still valid
     const localTeam = teams.find(t => t.id === teamId);
     if (localTeam && localTeam.inviteCode !== inviteCode) {
       showToast('Invite Link หมดอายุหรือถูกรีเซ็ต', 'error'); return;
@@ -537,15 +535,11 @@ function App() {
       if (localTeam) { setCurrentTeam(localTeam); setPage('dashboard'); }
       showToast(`คุณเป็นสมาชิกทีม "${teamName}" อยู่แล้ว`, 'info'); return;
     }
-    if (pendingMembers.some(p => p.teamId===teamId && p.userId===user.id && p.status==='pending')) {
-      showToast(`รอ Admin อนุมัติทีม "${teamName}" อยู่แล้ว`, 'info'); return;
-    }
-    setPendingMembers(prev => [...prev, {
-      id: uid(), teamId, userId: user.id,
-      requestedAt: now(), status: 'pending',
-      teamName // store for display even if admin is on different session
-    }]);
-    showToast(`✅ ส่งคำขอเข้าร่วมทีม "${teamName}" แล้ว รอ Admin อนุมัติ`);
+    // Join immediately — no approval needed
+    const role = 'edit';
+    setMembers(p => [...p, { id: uid(), teamId, userId: user.id, role, joinedAt: now() }]);
+    if (localTeam) { setCurrentTeam(localTeam); setPage('dashboard'); }
+    showToast(`✅ เข้าร่วมทีม "${teamName}" สำเร็จ!`);
   };
 
   useEffect(() => { processInvite(currentUser); }, [currentUser]);
@@ -688,22 +682,15 @@ function TeamSelectPage({ currentUser, teams, setTeams, members, setMembers, myT
   const joinTeam = () => {
     const code = inviteCode.trim();
     if (!code) return;
-    // Store code for processInvite and try immediately
-    localStorage.setItem('qah_pending_invite', code);
-    if (processInvite) { processInvite(currentUser, teams); }
-    else {
-      const t = teams.find(t => t.inviteCode === code);
-      if (!t) { showToast('ไม่พบ Invite Code นี้', 'error'); localStorage.removeItem('qah_pending_invite'); return; }
-      localStorage.removeItem('qah_pending_invite');
-      if (members.some(m => m.teamId===t.id && m.userId===currentUser.id)) {
-        setCurrentTeam(t); setPage('dashboard'); return;
-      }
-      if (pendingMembers && pendingMembers.some(p => p.teamId===t.id && p.userId===currentUser.id && p.status==='pending')) {
-        showToast('คุณส่งคำขอรอ Admin อนุมัติแล้ว','info'); return;
-      }
-      setPendingMembers(prev => [...prev, { id: uid(), teamId: t.id, userId: currentUser.id, requestedAt: now(), status: 'pending' }]);
-      showToast(`ส่งคำขอเข้าร่วมทีม "${t.name}" แล้ว รอ Admin อนุมัติ`);
+    const t = teams.find(t => t.inviteCode === code);
+    if (!t) { showToast('ไม่พบ Invite Code นี้', 'error'); return; }
+    if (members.some(m => m.teamId===t.id && m.userId===currentUser.id)) {
+      setCurrentTeam(t); setPage('dashboard'); return;
     }
+    setMembers(p => [...p, { id: uid(), teamId: t.id, userId: currentUser.id, role: 'edit', joinedAt: now() }]);
+    setCurrentTeam(t);
+    setPage('dashboard');
+    showToast(`✅ เข้าร่วมทีม "${t.name}" สำเร็จ!`);
     setAutoJoinCode && setAutoJoinCode('');
     setShowJoin(false);
   };
@@ -895,9 +882,6 @@ function Sidebar({ navigate, currentPage, navCtx, isAdmin, teamTCs, teamDefects,
       h('div', { className:`nav-item${currentPage==='team-settings'?' active':''}`, onClick:()=>nav('team-settings'), style:{display:'flex',alignItems:'center',gap:'8px'} },
         h('div',{className:'nav-dot',style:{background:'var(--purple)'}}),
         'Team Settings',
-        isAdmin&&(pendingMembers||[]).filter(p=>p.teamId===currentTeam?.id&&p.status==='pending').length>0&&
-          h('span',{style:{marginLeft:'auto',background:'var(--red)',color:'#fff',borderRadius:'99px',fontSize:'10px',fontWeight:'700',padding:'1px 6px',lineHeight:'16px'}},
-            (pendingMembers||[]).filter(p=>p.teamId===currentTeam?.id&&p.status==='pending').length)
       ),
       isAdmin && h('div', { className:`nav-item${currentPage==='activity-log'?' active':''}`, onClick:()=>nav('activity-log') }, h('div',{className:'nav-dot',style:{background:'var(--amber)'}}), 'Activity Log'),
     ),
@@ -2165,11 +2149,10 @@ function DefectsPage({ teamDefects, setDefects, testCases, teamTCs, teamTasks, t
 }
 
 // ─── TEAM SETTINGS PAGE ───────────────────────────────────────────────────────
-function TeamSettingsPage({ currentTeam, currentUser, setTeams, members, setMembers, users, isAdmin, showToast, addLog, pendingMembers, setPendingMembers }) {
+function TeamSettingsPage({ currentTeam, currentUser, setTeams, members, setMembers, users, isAdmin, showToast, addLog }) {
   const [tab, setTab] = useState('members');
   const teamMembers = members.filter(m=>m.teamId===currentTeam.id);
   const roles = ['admin','function','edit','view'];
-  const teamPending = (pendingMembers||[]).filter(p=>p.teamId===currentTeam.id && p.status==='pending');
 
   const updateRole = (memberId, role) => {
     setMembers(p=>p.map(m=>m.id===memberId?{...m,role}:m));
@@ -2188,7 +2171,7 @@ function TeamSettingsPage({ currentTeam, currentUser, setTeams, members, setMemb
     addLog('Approve Member',`Approve ${u?.name||req.userId} เข้าทีม`);
     showToast(`อนุมัติ ${u?.name||'user'} สำเร็จ ✓`);
   };
-  const teamName = currentTeam?.name || '';
+
   const rejectPending = (req) => {
     setPendingMembers(p=>p.map(x=>x.id===req.id?{...x,status:'rejected'}:x));
     const u=users.find(u=>u.id===req.userId);
@@ -2202,7 +2185,6 @@ function TeamSettingsPage({ currentTeam, currentUser, setTeams, members, setMemb
   const tabList = [
     {key:'members',label:'Members'},
     {key:'permissions',label:'Permission Guide'},
-    {key:'approve',label:h('span',{style:{display:'flex',alignItems:'center',gap:'6px'}},'Approve',isAdmin&&teamPending.length>0&&h('span',{style:{background:'var(--red)',color:'#fff',borderRadius:'99px',fontSize:'10px',fontWeight:'700',padding:'1px 6px',lineHeight:'16px'}},teamPending.length))},
     {key:'invite',label:'Invite'},
   ];
 
@@ -2243,40 +2225,6 @@ function TeamSettingsPage({ currentTeam, currentUser, setTeams, members, setMemb
           )
         )
       )
-    ),
-
-    tab==='approve'&&h('div',null,
-      isAdmin ? h('div',null,
-        teamPending.length===0
-          ? h('div',{className:'card',style:{textAlign:'center',padding:'40px',color:'var(--text3)'}},
-              h('div',{style:{fontSize:'32px',marginBottom:'8px'}},'✅'),
-              h('div',null,'ไม่มีคำขอรอการอนุมัติ')
-            )
-          : h('div',{className:'table-wrap'},
-              h('table',null,
-                h('thead',null,h('tr',null,h('th',null,'ผู้ขอเข้าร่วม'),h('th',null,'อีเมล'),h('th',null,'วันที่ขอ'),h('th',null,'Role เริ่มต้น'),h('th',null,''))),
-                h('tbody',null,teamPending.map(req=>{
-                  const u=users.find(u=>u.id===req.userId);
-                  const [selRole,setSelRole]=React.useState('edit');
-                  return h('tr',{key:req.id},
-                    h('td',null,h('div',{style:{display:'flex',alignItems:'center',gap:'8px'}},
-                      h('div',{className:'avatar',style:{background:u?.color+'22',color:u?.color,width:'28px',height:'28px',fontSize:'12px'}},u?.name?.[0]||'?'),
-                      h('span',{style:{fontWeight:'500'}},u?.name||req.userId)
-                    )),
-                    h('td',null,h('span',{style:{color:'var(--text2)',fontSize:'13px'}},u?.email||'—')),
-                    h('td',null,h('span',{style:{fontSize:'12px',color:'var(--text3)'}},req.requestedAt)),
-                    h('td',null,h('select',{className:'form-select',style:{width:'110px',padding:'4px 8px'},value:selRole,onChange:e=>setSelRole(e.target.value)},
-                      roles.map(r=>h('option',{key:r,value:r},r))
-                    )),
-                    h('td',null,h('div',{style:{display:'flex',gap:'6px'}},
-                      h('button',{className:'btn btn-sm',style:{color:'var(--green)',borderColor:'var(--green)',background:'var(--green-bg)'},onClick:()=>approvePending(req,selRole)},'✓ Approve'),
-                      h('button',{className:'btn btn-sm btn-danger',onClick:()=>rejectPending(req)},'✕ Reject')
-                    ))
-                  );
-                }))
-              )
-            )
-      ) : h('div',{className:'card',style:{textAlign:'center',padding:'40px',color:'var(--text3)'}},'เฉพาะ Admin เท่านั้น')
     ),
 
     tab==='invite'&&h('div',{className:'card'},
